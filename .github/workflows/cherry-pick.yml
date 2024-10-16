@@ -35,6 +35,7 @@ jobs:
           script: |
             const prUrl = context.payload.issue.pull_request.url;
             const pr = await github.request(`GET ${prUrl}`);
+            console.log("PR Head SHA: " + pr.data.head.sha);
             return pr.data.head.sha;
 
       - name: Cherry-pick the PR
@@ -45,7 +46,7 @@ jobs:
           
           # Extract the target branch from the comment
           TARGET_BRANCH=${{ steps.comment-check.outputs.branch }}
-
+          
           # Get PR head commit SHA from the previous step
           PR_HEAD_REF="${{ steps.get_pr_sha.outputs.result }}"
           
@@ -53,8 +54,8 @@ jobs:
           echo "TARGET_BRANCH: $TARGET_BRANCH"
           echo "PR_HEAD_REF: $PR_HEAD_REF"
           
-          # Fetch all refs
-          git fetch --all
+          # Fetch all refs, including PR refs
+          git fetch origin +refs/pull/*/head:refs/remotes/origin/pr/*
           
           # Checkout the target release branch
           git checkout $TARGET_BRANCH
@@ -62,10 +63,10 @@ jobs:
           # Create a new branch for the cherry-pick
           NEW_BRANCH_NAME="cherry-pick-pr-${PR_NUMBER}-to-${TARGET_BRANCH}"
           git checkout -b $NEW_BRANCH_NAME
-
+          
           # Cherry-pick the latest commit from the PR
           git cherry-pick $PR_HEAD_REF
-
+          
           # Push the new branch
           git push origin $NEW_BRANCH_NAME
 
