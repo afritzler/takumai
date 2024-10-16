@@ -81,7 +81,7 @@ docker-build: docker-build-main ## Build docker image with the manager.
 
 .PHONY: docker-build-main
 docker-build-main: ## Build main
-	docker build --target takumai -t ${IMG} .
+	docker build --build-arg GIT_COMMIT=$(COMMIT) --build-arg GIT_TAG=$(VERSION) --target takumai -t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image.

@@ -1,10 +1,9 @@
 # Build the manager binary
-FROM --platform=$BUILDPLATFORM golang:1.23 as builder
+FROM --platform=$BUILDPLATFORM golang:1.23 AS builder
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
 COPY go.mod go.mod
-COPY go.sum go.sum
 # cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
 RUN go mod download
@@ -19,7 +18,7 @@ ARG TARGETARCH
 ARG GIT_COMMIT
 ARG GIT_TAG
 
-FROM builder as takumai-builder
+FROM builder AS takumai-builder
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg \
@@ -27,9 +26,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot as takumai
+FROM gcr.io/distroless/static:nonroot AS takumai
 WORKDIR /
-COPY --from=manager-builder /workspace/bin/takumai .
+COPY --from=takumai-builder /workspace/bin/takumai .
 USER 65532:65532
 
 ENTRYPOINT ["/takumai"]
