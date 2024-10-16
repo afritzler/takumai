@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*.*.*' # This listens to any tag with the format vX.X.X
+      -
+permissions:
+  contents: write
 
 jobs:
   create-release-branch:
