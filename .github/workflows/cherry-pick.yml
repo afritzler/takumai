@@ -33,16 +33,16 @@ jobs:
         run: |
           PR_NUMBER=${{ github.event.issue.number }}
           TARGET_BRANCH=${{ steps.comment-check.outputs.branch }}
-          PR_HEAD_REF="${{ github.event.pull_request.head.ref }}"
+          PR_HEAD_REF="${{ github.event.pull_request.head.sha }}" # Use the PR head commit SHA directly
           
           # Create a new branch from the target release branch
           git checkout $TARGET_BRANCH
           NEW_BRANCH_NAME="cherry-pick-pr-${PR_NUMBER}-to-${TARGET_BRANCH}"
           git checkout -b $NEW_BRANCH_NAME
-
-          # Cherry-pick the commits from the PR
-          git cherry-pick -x $(git merge-base $PR_HEAD_REF $TARGET_BRANCH)..$PR_HEAD_REF
-
+          
+          # Cherry-pick the latest commit from the PR
+          git cherry-pick -x $PR_HEAD_REF
+          
           # Push the new branch
           git push origin $NEW_BRANCH_NAME
 
