@@ -1,4 +1,4 @@
-name: Cherry-pick PR
+name: Cherry-pick PR on Comment
 
 on:
   issue_comment:
@@ -33,7 +33,7 @@ jobs:
         run: |
           PR_NUMBER=${{ github.event.issue.number }}
           TARGET_BRANCH=${{ steps.comment-check.outputs.branch }}
-          PR_HEAD_REF=$(jq -r '.pull_request.head.ref' <<< "${{ github.event }}")
+          PR_HEAD_REF="${{ github.event.pull_request.head.ref }}"
           
           # Create a new branch from the target release branch
           git checkout $TARGET_BRANCH
@@ -42,14 +42,28 @@ jobs:
 
           # Cherry-pick the commits from the PR
           git cherry-pick -x $(git merge-base $PR_HEAD_REF $TARGET_BRANCH)..$PR_HEAD_REF
-          
+
           # Push the new branch
           git push origin $NEW_BRANCH_NAME
 
       - name: Create a cherry-pick PR
+        id: create_pr
         uses: peter-evans/create-pull-request@v5
         with:
-          branch: ${{ steps.cherry-pick.outputs.new-branch }}
+          branch: $NEW_BRANCH_NAME
           title: "Cherry-pick PR #${{ github.event.issue.number }} to ${{ steps.comment-check.outputs.branch }}"
           body: "This is an automated cherry-pick of PR #${{ github.event.issue.number }} to the ${{ steps.comment-check.outputs.branch }} branch."
           base: ${{ steps.comment-check.outputs.branch }}
+
+      - name: Add comment to original PR
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const prNumber = ${{ github.event.issue.number }};
+            const cherryPickPrUrl = `https://github.com/${{ github.repository }}/pull/${{ steps.create_pr.outputs.pull_request_number }}`;
+            github.issues.createComment({
+              issue_number: prNumber,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `Cherry-pick PR created: ${cherryPickPrUrl}`
+            });
