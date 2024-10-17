@@ -4,7 +4,7 @@ Takumai Release (匠舞リリース) – Masterful Dance of Releases
 
 ## Usage
 
-Some usage information
+Some very nice usage information
 
 ```shell
 make help
