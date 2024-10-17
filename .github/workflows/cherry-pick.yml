@@ -1,30 +1,106 @@
-name: Cherry pick PR
+name: Cherry-pick commits and create PR
 
 on:
   pull_request_target:
-    branches:
-      - main
-    types: ["closed", "labeled"]
+    types:
+      - labeled
+  workflow_dispatch: # Allows manual trigger for testing
 
 jobs:
-  cherry_pick_release_v2_0:
+  cherry-pick-and-create-pr:
+    if: |
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.label.name, 'cherry-pick/')
     runs-on: ubuntu-latest
-    name: Cherry pick into release-v0.2
-    if: ${{ contains(github.event.pull_request.labels.*.name, 'release-v0.2') && github.event.pull_request.merged == true }}
+    permissions:
+      contents: write  # Allows pushing new branches
+      pull-requests: write  # Allows creating pull requests
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+      - name: Checkout the repository
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-      - name: Cherry pick into release-v0.2
-        uses: carloscastrojumo/github-cherry-pick-action@v1.0.1
+          token: ${{ secrets.PAT_TOKEN }}
+          fetch-depth: 0  # Fetch all history
+
+      - name: Set up Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Get PR details
+        id: pr-details
+        uses: actions/github-script@v7
         with:
-          branch: release-v0.2
-          labels: |
-            release-v0.2
-          reviewers: |
-            afritzler
-          title: '[cherry-pick] {old_title}'
-          body: 'Cherry picking #{old_pull_request_id} onto this branch'
-env:
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              throw new Error('Pull request context is missing');
+            }
+
+            const cherryPickLabel = context.payload.label.name;
+            console.log('Cherry-pick label:', cherryPickLabel);
+
+            if (cherryPickLabel.startsWith('cherry-pick/')) {
+              const releaseBranch = cherryPickLabel.replace('cherry-pick/', '').trim();
+              console.log('Extracted release branch name:', releaseBranch);
+
+              const mergeCommitSha = pr.merge_commit_sha;
+              console.log('Merge commit SHA:', mergeCommitSha);
+
+              core.setOutput('releaseBranch', releaseBranch);
+              core.setOutput('mergeCommitSha', mergeCommitSha);
+            } else {
+              throw new Error('Cherry-pick label not found.');
+            }
+
+      - name: Fetch all branches
+        run: |
+          git fetch --all --prune
+
+      - name: Ensure merge commit exists
+        run: |
+          set -e
+          git fetch origin main
+          git checkout main
+          MERGE_COMMIT_SHA=${{ steps.pr-details.outputs.mergeCommitSha }}
+          echo "Merge commit SHA: $MERGE_COMMIT_SHA"
+          git rev-parse $MERGE_COMMIT_SHA
+
+      - name: Check out the release branch
+        id: checkout-release-branch
+        run: |
+          set -e
+          RELEASE_BRANCH=${{ steps.pr-details.outputs.releaseBranch }}
+          echo "Attempting to check out the release branch: $RELEASE_BRANCH"
+          git checkout -b $RELEASE_BRANCH origin/$RELEASE_BRANCH || git checkout $RELEASE_BRANCH
+
+          # Create a new branch for the cherry-picked commit
+          NEW_BRANCH="cherry-pick-$RELEASE_BRANCH-$(date +%Y%m%d%H%M%S)"
+          git checkout -b $NEW_BRANCH
+          echo "Current branch after checkout:"
+          git branch
+          NEWBRANCH=cherry-pick-${{ steps.pr-details.outputs.releaseBranch }}-$(date +%Y%m%d%H%M%S)
+          echo "::set-output name=newBranch::$NEWBRANCH"
+
+      - name: Cherry-pick the merge commit
+        run: |
+          set -e
+          MERGE_COMMIT_SHA=${{ steps.pr-details.outputs.mergeCommitSha }}
+          echo "Cherry-picking merge commit $MERGE_COMMIT_SHA onto $(git rev-parse --abbrev-ref HEAD)"
+          git cherry-pick -x $MERGE_COMMIT_SHA
+
+      - name: Push the cherry-picked changes to a new branch
+        run: |
+          set -e
+          current_branch=$(git rev-parse --abbrev-ref HEAD)
+          git push origin $current_branch
+
+      - name: Create a PR to the release branch
+        uses: peter-evans/create-pull-request@v7
+        with:
+          base: ${{ steps.pr-details.outputs.releaseBranch }}
+          title: 'Cherry-pick PR #${{ github.event.pull_request.number }} to ${{ steps.pr-details.outputs.releaseBranch }}'
+          body: |
+            This PR cherry-picks the squashed merge commit from PR #${{ github.event.pull_request.number }} into the release branch ${{ steps.pr-details.outputs.releaseBranch }}.
+          draft: false
