@@ -1,106 +1,49 @@
-name: Cherry-pick commits and create PR
-
+name: Backport labeled merged pull requests
 on:
-  pull_request_target:
-    types:
-      - labeled
-  workflow_dispatch: # Allows manual trigger for testing
-
+  pull_request:
+    types: [closed]
+  issue_comment:
+    types: [created]
 jobs:
-  cherry-pick-and-create-pr:
-    if: |
-      github.event.pull_request.merged == true &&
-      startsWith(github.event.label.name, 'cherry-pick/')
+  backport:
+    name: Create backport PRs
     runs-on: ubuntu-latest
-    permissions:
-      contents: write  # Allows pushing new branches
-      pull-requests: write  # Allows creating pull requests
-
+    # Only run when pull request is merged
+    # or when a comment starting with `/backport` is created by someone other than the
+    # https://github.com/backport-action bot user (user id: 97796249). Note that if you use your
+    # own PAT as `github_token`, that you should replace this id with yours.
+    if: >
+      (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.merged
+      ) || (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        startsWith(github.event.comment.body, '/backport')
+      )
     steps:
-      - name: Checkout the repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
+          # Token for git actions, e.g. git push
           token: ${{ secrets.PAT_TOKEN }}
-          fetch-depth: 0  # Fetch all history
-
-      - name: Set up Git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Get PR details
-        id: pr-details
-        uses: actions/github-script@v7
+      - name: Create backport PRs
+        uses: korthout/backport-action@v3
         with:
-          script: |
-            const pr = context.payload.pull_request;
-            if (!pr) {
-              throw new Error('Pull request context is missing');
+          # Token to authenticate requests to GitHub
+          github_token: ${{ secrets.PAT_TOKEN }}
+
+          # Template used as description in the pull requests created by this action.
+          # Placeholders can be used to define variable values.
+          # These are indicated by a dollar sign and curly braces (`${placeholder}`).
+          # Please refer to this action's README for all available placeholders.
+          pull_description: |-
+            # Description
+            Backport of #${pull_number} to `${target_branch}`.
+
+            relates to ${issue_refs}
+            original author: @${pull_author}
+
+          experimental: >
+            {
+              "conflict_resolution": "draft_commit_conflicts"
             }
-
-            const cherryPickLabel = context.payload.label.name;
-            console.log('Cherry-pick label:', cherryPickLabel);
-
-            if (cherryPickLabel.startsWith('cherry-pick/')) {
-              const releaseBranch = cherryPickLabel.replace('cherry-pick/', '').trim();
-              console.log('Extracted release branch name:', releaseBranch);
-
-              const mergeCommitSha = pr.merge_commit_sha;
-              console.log('Merge commit SHA:', mergeCommitSha);
-
-              core.setOutput('releaseBranch', releaseBranch);
-              core.setOutput('mergeCommitSha', mergeCommitSha);
-            } else {
-              throw new Error('Cherry-pick label not found.');
-            }
-
-      - name: Fetch all branches
-        run: |
-          git fetch --all --prune
-
-      - name: Ensure merge commit exists
-        run: |
-          set -e
-          git fetch origin main
-          git checkout main
-          MERGE_COMMIT_SHA=${{ steps.pr-details.outputs.mergeCommitSha }}
-          echo "Merge commit SHA: $MERGE_COMMIT_SHA"
-          git rev-parse $MERGE_COMMIT_SHA
-
-      - name: Check out the release branch
-        id: checkout-release-branch
-        run: |
-          set -e
-          RELEASE_BRANCH=${{ steps.pr-details.outputs.releaseBranch }}
-          echo "Attempting to check out the release branch: $RELEASE_BRANCH"
-          git checkout -b $RELEASE_BRANCH origin/$RELEASE_BRANCH || git checkout $RELEASE_BRANCH
-
-          # Create a new branch for the cherry-picked commit
-          NEW_BRANCH="cherry-pick-$RELEASE_BRANCH-$(date +%Y%m%d%H%M%S)"
-          git checkout -b $NEW_BRANCH
-          echo "Current branch after checkout:"
-          git branch
-          NEWBRANCH=cherry-pick-${{ steps.pr-details.outputs.releaseBranch }}-$(date +%Y%m%d%H%M%S)
-          echo "::set-output name=newBranch::$NEWBRANCH"
-
-      - name: Cherry-pick the merge commit
-        run: |
-          set -e
-          MERGE_COMMIT_SHA=${{ steps.pr-details.outputs.mergeCommitSha }}
-          echo "Cherry-picking merge commit $MERGE_COMMIT_SHA onto $(git rev-parse --abbrev-ref HEAD)"
-          git cherry-pick -x $MERGE_COMMIT_SHA
-
-      - name: Push the cherry-picked changes to a new branch
-        run: |
-          set -e
-          current_branch=$(git rev-parse --abbrev-ref HEAD)
-          git push origin $current_branch
-
-      - name: Create a PR to the release branch
-        uses: peter-evans/create-pull-request@v7
-        with:
-          base: ${{ steps.pr-details.outputs.releaseBranch }}
-          title: 'Cherry-pick PR #${{ github.event.pull_request.number }} to ${{ steps.pr-details.outputs.releaseBranch }}'
-          body: |
-            This PR cherry-picks the squashed merge commit from PR #${{ github.event.pull_request.number }} into the release branch ${{ steps.pr-details.outputs.releaseBranch }}.
-          draft: false
