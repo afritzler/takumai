@@ -1,6 +1,6 @@
 name: Backport labeled merged pull requests
 on:
-  pull_request_target:
+  pull_request:
     types: [closed, labeled]
   issue_comment:
     types: [created]
