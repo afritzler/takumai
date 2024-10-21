@@ -1,15 +1,16 @@
-name: Release Drafter Release Branches
+name: Release Drafter Main
 
 on:
   push:
     branches:
-      - release-v*
+      - main
+      - release-*
   pull_request_target:
     types: [ opened, reopened, synchronize ]
   workflow_dispatch:
 
 jobs:
-  update_release_draft-release:
+  update_release_draft-main:
     permissions:
       # write permission is required to create a github release
       contents: write
